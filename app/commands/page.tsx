@@ -47,8 +47,13 @@ export default function CommandsPage() {
   async function runSQL() {
     const statements = sql
       .split(';')
-      .map(s => s.trim())
-      .filter(s => s.length > 0 && !s.startsWith('--'))
+      .map(s =>
+        s.split('\n')
+          .filter(line => !line.trim().startsWith('--'))
+          .join('\n')
+          .trim()
+      )
+      .filter(s => s.length > 0)
 
     if (statements.length === 0) return
 
@@ -65,7 +70,7 @@ export default function CommandsPage() {
     let errors: string[] = []
 
     for (const stmt of statements) {
-      if (stmt.startsWith('--') || stmt.toUpperCase().startsWith('--')) continue
+      if (!stmt) continue
 
       const validation = validateSQL(stmt)
       if (!validation.valid) {
