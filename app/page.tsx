@@ -1,139 +1,200 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import Link from 'next/link'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import type { Event, Fighter } from '@/lib/database.types'
+import type { SimulationConfig } from '@/lib/database.types'
 
-export default function Dashboard() {
-  const [upcomingEvents, setUpcomingEvents] = useState<Event[]>([])
-  const [recentEvents, setRecentEvents] = useState<Event[]>([])
-  const [topFighters, setTopFighters] = useState<Fighter[]>([])
-  const [stats, setStats] = useState({ total: 0, active: 0, injured: 0, champions: 0 })
-  const [loading, setLoading] = useState(true)
+type Screen = 'home' | 'load' | 'new'
 
-  useEffect(() => {
-    fetchAll()
-  }, [])
+export default function StartScreen() {
+  const router = useRouter()
+  const [screen, setScreen] = useState<Screen>('home')
+  const [sims, setSims] = useState<SimulationConfig[]>([])
+  const [loading, setLoading] = useState(false)
+  const [startDate, setStartDate] = useState('2020-01-04')
+  const [creating, setCreating] = useState(false)
 
-  async function fetchAll() {
+  async function loadSims() {
     setLoading(true)
-    const [{ data: events }, { data: fighters }] = await Promise.all([
-      supabase.from('events').select('*').order('event_date', { ascending: true }),
-      supabase.from('fighters').select('*').neq('status', 'released').neq('status', 'retired'),
-    ])
-
-    const allEvents = events ?? []
-    const allFighters = fighters ?? []
-
-    setUpcomingEvents(allEvents.filter(e => e.status === 'scheduled').slice(0, 3))
-    setRecentEvents(allEvents.filter(e => e.status === 'completed').reverse().slice(0, 3))
-    setTopFighters(allFighters.sort((a, b) => b.hype_score - a.hype_score).slice(0, 5))
-    setStats({
-      total: allFighters.length,
-      active: allFighters.filter(f => f.status === 'active').length,
-      injured: allFighters.filter(f => f.status === 'injured').length,
-      champions: allFighters.filter(f => f.is_champion || f.is_interim_champion).length,
-    })
+    setScreen('load')
+    const { data } = await supabase.from('simulation_config').select('*').order('created_at', { ascending: false })
+    setSims(data ?? [])
     setLoading(false)
   }
 
+  function selectSim(sim: SimulationConfig) {
+    localStorage.setItem('simId', String(sim.id))
+    router.push('/dashboard')
+  }
+
+  async function createSim() {
+    if (!startDate) return
+    setCreating(true)
+    const { data, error } = await supabase
+      .from('simulation_config')
+      .insert({ start_date: startDate, sim_date: startDate })
+      .select()
+      .single()
+
+    if (data) {
+      localStorage.setItem('simId', String(data.id))
+      router.push('/dashboard')
+    } else {
+      alert('Error: ' + error?.message)
+      setCreating(false)
+    }
+  }
+
   return (
-    <div style={{ padding: 32 }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0 }}>Dashboard</h1>
-        <p style={{ color: 'var(--muted)', margin: '4px 0 0', fontSize: 14 }}>UFC Manager Simulation</p>
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'var(--background)',
+      padding: 32,
+    }}>
+      <div style={{ textAlign: 'center', marginBottom: 56 }}>
+        <div style={{ fontSize: 13, letterSpacing: '0.3em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+          UFC
+        </div>
+        <div style={{ fontSize: 64, fontWeight: 900, color: 'var(--accent)', letterSpacing: '-0.03em', lineHeight: 1 }}>
+          MANAGER
+        </div>
+        <div style={{ fontSize: 14, color: 'var(--muted)', marginTop: 14, letterSpacing: '0.05em' }}>
+          Simulation · Strategy · Control
+        </div>
       </div>
 
-      {loading ? (
-        <div style={{ color: 'var(--muted)' }}>Loading...</div>
-      ) : (
-        <>
-          {/* Stats */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16, marginBottom: 28 }}>
-            {[
-              { label: 'Total Fighters', value: stats.total, color: 'var(--foreground)' },
-              { label: 'Active', value: stats.active, color: 'var(--green)' },
-              { label: 'Injured', value: stats.injured, color: '#f97316' },
-              { label: 'Champions', value: stats.champions, color: 'var(--gold)' },
-            ].map(({ label, value, color }) => (
-              <div key={label} style={{
-                background: 'var(--surface)', border: '1px solid var(--border)',
-                borderRadius: 12, padding: '18px 20px',
-              }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{label}</div>
-                <div style={{ fontSize: 32, fontWeight: 800, color }}>{value}</div>
-              </div>
-            ))}
-          </div>
+      {screen === 'home' && (
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'center' }}>
+          <OptionCard
+            title="Wczytaj symulację"
+            desc="Kontynuuj istniejącą symulację"
+            onClick={loadSims}
+          />
+          <OptionCard
+            title="Nowa symulacja"
+            desc="Zacznij od wybranej daty"
+            onClick={() => setScreen('new')}
+            primary
+          />
+        </div>
+      )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 20 }}>
-            <Section title="Upcoming Events" action={{ label: 'All Events', href: '/events' }}>
-              {upcomingEvents.length === 0 ? <Empty text="No upcoming events" /> : upcomingEvents.map(ev => (
-                <Link key={ev.id} href={`/events/${ev.id}`} style={{ textDecoration: 'none' }}>
-                  <div style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--foreground)' }}>{ev.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{new Date(ev.event_date).toLocaleDateString('pl-PL')}</div>
-                      </div>
-                      <span style={{
-                        fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
-                        background: ev.event_type === 'PPV' ? 'var(--accent)' : 'var(--surface2)',
-                        color: ev.event_type === 'PPV' ? '#fff' : 'var(--muted)',
-                      }}>
-                        {ev.event_type === 'PPV' ? 'PPV' : 'FN'}
-                      </span>
+      {screen === 'load' && (
+        <div style={{ width: '100%', maxWidth: 480 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, textAlign: 'center' }}>
+            Wybierz symulację
+          </h2>
+          {loading ? (
+            <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 32 }}>Ładowanie...</div>
+          ) : sims.length === 0 ? (
+            <div style={{ textAlign: 'center', color: 'var(--muted)', marginBottom: 24, padding: '24px 0' }}>
+              Brak zapisanych symulacji.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+              {sims.map(sim => (
+                <button key={sim.id} onClick={() => selectSim(sim)} style={{
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                  borderRadius: 10, padding: '14px 18px', cursor: 'pointer',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  color: 'var(--foreground)', textAlign: 'left', width: '100%',
+                }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>Symulacja #{sim.id}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                      Start: {new Date(sim.start_date).toLocaleDateString('pl-PL')}
                     </div>
                   </div>
-                </Link>
-              ))}
-            </Section>
-
-            <Section title="Recent Events" action={{ label: 'All Events', href: '/events' }}>
-              {recentEvents.length === 0 ? <Empty text="No completed events" /> : recentEvents.map(ev => (
-                <Link key={ev.id} href={`/events/${ev.id}`} style={{ textDecoration: 'none' }}>
-                  <div style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--foreground)' }}>{ev.name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{new Date(ev.event_date).toLocaleDateString('pl-PL')} · Completed</div>
-                  </div>
-                </Link>
-              ))}
-            </Section>
-
-            <Section title="Top Hype Fighters" action={{ label: 'Full Roster', href: '/roster' }}>
-              {topFighters.length === 0 ? <Empty text="No fighters yet" /> : topFighters.map((f, i) => (
-                <Link key={f.id} href={`/roster/${f.id}`} style={{ textDecoration: 'none' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: i < topFighters.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                    <div style={{ width: 20, textAlign: 'center', fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{i + 1}</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--foreground)' }}>{f.first_name} {f.last_name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{f.primary_division}</div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>Aktualna data</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>
+                      {new Date(sim.sim_date).toLocaleDateString('pl-PL')}
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{Math.round(f.hype_score)}</div>
                   </div>
-                </Link>
+                </button>
               ))}
-            </Section>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <button onClick={() => setScreen('home')} style={{
+              background: 'none', border: '1px solid var(--border)', borderRadius: 8,
+              padding: '10px 20px', color: 'var(--muted)', cursor: 'pointer', fontSize: 14,
+            }}>
+              Wróć
+            </button>
+            <button onClick={() => setScreen('new')} style={{
+              background: 'var(--accent)', border: 'none', borderRadius: 8,
+              padding: '10px 20px', color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 600,
+            }}>
+              Nowa symulacja
+            </button>
           </div>
-        </>
+        </div>
+      )}
+
+      {screen === 'new' && (
+        <div style={{ width: '100%', maxWidth: 400, textAlign: 'center' }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Nowa symulacja</h2>
+          <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 28, lineHeight: 1.6 }}>
+            Wybierz datę startową symulacji. Od tej daty będą liczone eventy i rankingi.
+          </p>
+          <div style={{ marginBottom: 24, textAlign: 'left' }}>
+            <label style={{
+              fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 8,
+              textTransform: 'uppercase', letterSpacing: '0.08em',
+            }}>
+              Data rozpoczęcia
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={e => setStartDate(e.target.value)}
+              style={{
+                width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 8, padding: '12px 14px', color: 'var(--foreground)', fontSize: 15,
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={() => setScreen('home')} style={{
+              flex: 1, background: 'none', border: '1px solid var(--border)', borderRadius: 8,
+              padding: '12px', color: 'var(--muted)', cursor: 'pointer', fontSize: 14,
+            }}>
+              Wróć
+            </button>
+            <button onClick={createSim} disabled={creating || !startDate} style={{
+              flex: 2, background: 'var(--accent)', border: 'none', borderRadius: 8,
+              padding: '12px', color: '#fff', cursor: creating ? 'not-allowed' : 'pointer',
+              fontSize: 14, fontWeight: 700, opacity: creating ? 0.7 : 1,
+            }}>
+              {creating ? 'Tworzenie...' : 'Rozpocznij symulację'}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )
 }
 
-function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: { label: string; href: string } }) {
+function OptionCard({ title, desc, onClick, primary }: {
+  title: string; desc: string; onClick: () => void; primary?: boolean
+}) {
   return (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '18px 20px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>{title}</h2>
-        {action && <Link href={action.href} style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}>{action.label} →</Link>}
-      </div>
-      {children}
-    </div>
+    <button onClick={onClick} style={{
+      background: primary ? 'var(--accent)' : 'var(--surface)',
+      border: primary ? 'none' : '1px solid var(--border)',
+      borderRadius: 14, padding: '28px 40px', cursor: 'pointer',
+      textAlign: 'center', color: primary ? '#fff' : 'var(--foreground)',
+      minWidth: 200, transition: 'opacity 0.15s',
+    }}>
+      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>{title}</div>
+      <div style={{ fontSize: 13, opacity: 0.75 }}>{desc}</div>
+    </button>
   )
-}
-
-function Empty({ text }: { text: string }) {
-  return <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>{text}</div>
 }

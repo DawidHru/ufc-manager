@@ -61,6 +61,8 @@ export default function AddFighterPage() {
 
   async function save() {
     if (!form.first_name || !form.last_name) return alert('Name is required')
+    if (!form.nationality.trim()) return alert('Nationality is required')
+    if (!form.age) return alert('Age is required')
     setSaving(true)
 
     const wins = Number(form.wins) || 0
@@ -71,8 +73,8 @@ export default function AddFighterPage() {
       first_name: form.first_name.trim(),
       last_name: form.last_name.trim(),
       nickname: form.nickname.trim() || null,
-      nationality: form.nationality.trim() || null,
-      age: Number(form.age) || null,
+      nationality: form.nationality.trim(),
+      age: Number(form.age),
       primary_division: form.primary_division,
       style: form.style,
       wins,
@@ -116,8 +118,8 @@ export default function AddFighterPage() {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
           <Field label="Nickname" value={form.nickname} onChange={v => set('nickname', v)} />
-          <Field label="Nationality" value={form.nationality} onChange={v => set('nationality', v)} />
-          <Field label="Age" value={form.age} onChange={v => set('age', v)} type="number" />
+          <Field label="Nationality *" value={form.nationality} onChange={v => set('nationality', v)} />
+          <Field label="Age *" value={form.age} onChange={v => set('age', v)} type="number" />
         </div>
 
         {/* Division & Style */}
