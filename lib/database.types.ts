@@ -164,7 +164,7 @@ export interface MatchmakingSuggestion {
 export interface SimulationConfig {
   id: number
   start_date: string
-  current_date: string
+  sim_date: string
   created_at: string
 }
 

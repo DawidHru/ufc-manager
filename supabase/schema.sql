@@ -58,10 +58,10 @@ CREATE TYPE title_type AS ENUM ('none', 'title', 'interim_title', 'contender');
 -- ─────────────────────────────────────────
 
 CREATE TABLE simulation_config (
-  id          SERIAL PRIMARY KEY,
-  start_date  DATE NOT NULL,
-  current_date DATE NOT NULL,
-  created_at  TIMESTAMPTZ DEFAULT NOW()
+  id           SERIAL PRIMARY KEY,
+  start_date   DATE NOT NULL,
+  sim_date     DATE NOT NULL,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ─────────────────────────────────────────
