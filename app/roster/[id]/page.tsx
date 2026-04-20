@@ -65,6 +65,19 @@ export default function FighterProfile() {
     setEvents(ev ?? [])
 
     if (f && allFighters) {
+      // Get fighters already booked in upcoming scheduled fights
+      const scheduledIds = (ev ?? []).map(e => e.id)
+      let bookedIds = new Set<number>()
+      if (scheduledIds.length > 0) {
+        const { data: pending } = await supabase
+          .from('fights').select('fighter1_id, fighter2_id')
+          .in('event_id', scheduledIds).is('result_method', null)
+        for (const fight of pending ?? []) {
+          bookedIds.add(fight.fighter1_id)
+          bookedIds.add(fight.fighter2_id)
+        }
+      }
+
       const rankMap: Record<string, Record<number, number>> = {}
       for (const r of rankings ?? []) {
         if (!rankMap[r.division]) rankMap[r.division] = {}
@@ -74,8 +87,9 @@ export default function FighterProfile() {
       const myRank = rankMap[f.primary_division]?.[f.id] ?? null
       const today = new Date()
 
-      // Filter: same division, available
+      // Filter: same division, available today, not already booked
       const candidates = allFighters.filter(opp => {
+        if (bookedIds.has(opp.id)) return false
         if (opp.available_date && new Date(opp.available_date) > today) return false
         return opp.primary_division === f.primary_division || opp.secondary_division === f.primary_division
       })

@@ -16,6 +16,7 @@ function MatchmakerContent() {
   const [fighters, setFighters] = useState<Fighter[]>([])
   const [rankings, setRankings] = useState<Record<string, Record<number, number>>>({})
   const [selectedEvent, setSelectedEvent] = useState<string>(eventIdParam ?? '')
+  const [bookedFighterIds, setBookedFighterIds] = useState<Set<number>>(new Set())
 
   const [f1Id, setF1Id] = useState(searchParams.get('f1') ?? '')
   const [f2Id, setF2Id] = useState(searchParams.get('f2') ?? '')
@@ -40,7 +41,8 @@ function MatchmakerContent() {
       supabase.from('fighters').select('*').eq('status', 'active'),
       supabase.from('current_rankings').select('*'),
     ])
-    setEvents(ev ?? [])
+    const evList = ev ?? []
+    setEvents(evList)
     setFighters(ft ?? [])
     const rankMap: Record<string, Record<number, number>> = {}
     for (const r of rk ?? []) {
@@ -48,6 +50,17 @@ function MatchmakerContent() {
       rankMap[r.division][r.fighter_id] = r.rank
     }
     setRankings(rankMap)
+
+    // Fighters already booked in any scheduled pending fight
+    const scheduledIds = evList.map(e => e.id)
+    if (scheduledIds.length > 0) {
+      const { data: pending } = await supabase
+        .from('fights').select('fighter1_id, fighter2_id')
+        .in('event_id', scheduledIds).is('result_method', null)
+      const ids = new Set<number>()
+      for (const f of pending ?? []) { ids.add(f.fighter1_id); ids.add(f.fighter2_id) }
+      setBookedFighterIds(ids)
+    }
   }
 
   function getRank(fighterId: number, div: Division): number | null {
@@ -60,7 +73,20 @@ function MatchmakerContent() {
     setBooking(true)
     const f1 = fighters.find(f => f.id === Number(f1Id))!
     const f2 = fighters.find(f => f.id === Number(f2Id))!
-    const eventType = events.find(e => e.id === Number(selectedEvent))?.event_type ?? 'Fight Night'
+    const ev = events.find(e => e.id === Number(selectedEvent))
+    const eventType = ev?.event_type ?? 'Fight Night'
+
+    // Validate availability against event date
+    const eventDate = ev ? new Date(ev.event_date) : new Date()
+    if (f1.available_date && new Date(f1.available_date) > eventDate) {
+      setBooking(false)
+      return alert(`${f1.first_name} ${f1.last_name} is not available until ${new Date(f1.available_date).toLocaleDateString('pl-PL')} — after this event.`)
+    }
+    if (f2.available_date && new Date(f2.available_date) > eventDate) {
+      setBooking(false)
+      return alert(`${f2.first_name} ${f2.last_name} is not available until ${new Date(f2.available_date).toLocaleDateString('pl-PL')} — after this event.`)
+    }
+
     const f1Rank = getRank(f1.id, manualDiv)
     const f2Rank = getRank(f2.id, manualDiv)
     const rounds = determineScheduledRounds(titleType === 'title', titleType === 'interim_title', cardPos, eventType as any, f1, f2, f1Rank, f2Rank)
@@ -78,7 +104,17 @@ function MatchmakerContent() {
     setBooking(false)
   }
 
-  const availableFighters = fighters.filter(f => !f.available_date || new Date(f.available_date) <= new Date())
+  // Filter by: not booked in any upcoming fight, available by selected event date (or today)
+  const selectedEventDate = selectedEvent
+    ? events.find(e => e.id === Number(selectedEvent))?.event_date
+    : null
+  const cutoff = selectedEventDate ? new Date(selectedEventDate) : new Date()
+
+  const availableFighters = fighters.filter(f => {
+    if (bookedFighterIds.has(f.id)) return false
+    if (f.available_date && new Date(f.available_date) > cutoff) return false
+    return true
+  })
 
   return (
     <div style={{ padding: 32, maxWidth: 640 }}>

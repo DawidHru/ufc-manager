@@ -160,16 +160,30 @@ export default function EventPage() {
     if (!event) return
     setAutoFilling(true)
 
-    const bookedIds = new Set(fights.flatMap(f => [f.fighter1_id, f.fighter2_id]))
+    // Get all scheduled event IDs to find globally-booked fighters
+    const { data: scheduledEvs } = await supabase.from('events').select('id').eq('status', 'scheduled')
+    const scheduledEventIds = (scheduledEvs ?? []).map(e => e.id)
 
-    const [{ data: allFighters }, { data: rankingsData }, { data: fightHistoryData }] = await Promise.all([
+    const [{ data: allFighters }, { data: rankingsData }, { data: fightHistoryData }, { data: pendingFightsData }] = await Promise.all([
       supabase.from('fighters').select('*').eq('status', 'active'),
       supabase.from('current_rankings').select('*'),
       supabase.from('fights').select('fighter1_id, fighter2_id, hype_rating, dominance_rating').not('result_method', 'is', null),
+      scheduledEventIds.length > 0
+        ? supabase.from('fights').select('fighter1_id, fighter2_id').in('event_id', scheduledEventIds).is('result_method', null)
+        : Promise.resolve({ data: [] }),
     ])
 
+    // Fighters already booked in any scheduled pending fight
+    const globalBookedIds = new Set<number>()
+    for (const f of pendingFightsData ?? []) {
+      globalBookedIds.add(f.fighter1_id)
+      globalBookedIds.add(f.fighter2_id)
+    }
+
+    const eventDate = new Date(event.event_date)
     const availableFighters = (allFighters ?? []).filter(f =>
-      !bookedIds.has(f.id) && (!f.available_date || new Date(f.available_date) <= new Date())
+      !globalBookedIds.has(f.id) &&
+      (!f.available_date || new Date(f.available_date) <= eventDate)
     )
 
     const rankMap: Record<string, Record<number, number>> = {}
@@ -222,7 +236,7 @@ export default function EventPage() {
         const divRankings = rankMap[div] ?? {}
         const contenderEntry = Object.entries(divRankings)
           .sort(([, a], [, b]) => (a as number) - (b as number))
-          .find(([fid]) => !usedFighters.has(Number(fid)) && !bookedIds.has(Number(fid)) && Number(fid) !== champ.id)
+          .find(([fid]) => !usedFighters.has(Number(fid)) && !globalBookedIds.has(Number(fid)) && Number(fid) !== champ.id)
         if (!contenderEntry) continue
         const contender = availableFighters.find(f => f.id === Number(contenderEntry[0]))
         if (!contender) continue

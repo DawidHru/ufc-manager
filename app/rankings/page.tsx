@@ -70,6 +70,21 @@ export default function RankingsPage() {
     }
   }, [tab, mode, divRankings, fighters])
 
+  // ── Set champion ──────────────────────────────────────────────────────────
+  async function setChampion(fighterId: number) {
+    if (tab === 'P4P') return
+    const division = tab as Division
+    await supabase.from('fighters').update({ is_champion: false, champion_division: null }).eq('champion_division', division).eq('is_champion', true)
+    await supabase.from('fighters').update({ is_champion: true, champion_division: division }).eq('id', fighterId)
+    await fetchAll()
+  }
+
+  async function clearChampion() {
+    if (tab === 'P4P') return
+    await supabase.from('fighters').update({ is_champion: false, champion_division: null }).eq('champion_division', tab as Division).eq('is_champion', true)
+    await fetchAll()
+  }
+
   // ── Auto recalculate division ──────────────────────────────────────────────
   async function recalcDiv(division: Division) {
     setCalculating(true)
@@ -346,23 +361,38 @@ export default function RankingsPage() {
           )}
 
           {/* Champion (not for P4P) */}
-          {tab !== 'P4P' && champion && (
+          {tab !== 'P4P' && (
             <div style={{
-              background: 'linear-gradient(135deg, #d4a01722, #d4a01708)', border: '1px solid var(--gold)',
+              background: champion ? 'linear-gradient(135deg, #d4a01722, #d4a01708)' : 'var(--surface)',
+              border: `1px solid ${champion ? 'var(--gold)' : 'var(--border)'}`,
               borderRadius: 12, padding: '18px 24px', marginBottom: 12,
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <span style={{ fontSize: 22 }}>🥇</span>
+                <span style={{ fontSize: 22 }}>👑</span>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 700, letterSpacing: '0.12em', marginBottom: 2 }}>CHAMPION</div>
-                  <Link href={`/roster/${champion.id}`} style={{ fontSize: 17, fontWeight: 800, color: 'var(--foreground)', textDecoration: 'none' }}>
-                    {champion.first_name} {champion.last_name}
-                  </Link>
-                  {champion.nickname && <div style={{ fontSize: 12, color: 'var(--muted)' }}>"{champion.nickname}"</div>}
+                  {champion ? (
+                    <>
+                      <Link href={`/roster/${champion.id}`} style={{ fontSize: 17, fontWeight: 800, color: 'var(--foreground)', textDecoration: 'none' }}>
+                        {champion.first_name} {champion.last_name}
+                      </Link>
+                      {champion.nickname && <div style={{ fontSize: 12, color: 'var(--muted)' }}>"{champion.nickname}"</div>}
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 14, color: 'var(--muted)' }}>Vacant — click 👑 next to a fighter to set champion</div>
+                  )}
                 </div>
               </div>
-              <Record wins={champion.wins} losses={champion.losses} draws={champion.draws} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {champion && <Record wins={champion.wins} losses={champion.losses} draws={champion.draws} />}
+                {champion && (
+                  <button onClick={clearChampion} title="Vacate title" style={{
+                    background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                    padding: '4px 10px', fontSize: 11, color: 'var(--muted)', cursor: 'pointer',
+                  }}>Vacate</button>
+                )}
+              </div>
             </div>
           )}
 
@@ -412,11 +442,22 @@ export default function RankingsPage() {
                     {tab === 'P4P' && <span style={{ marginLeft: 8, fontSize: 11, padding: '1px 6px', borderRadius: 4, background: 'var(--surface2)', color: 'var(--muted)' }}>{f.primary_division}</span>}
                     {tab === 'P4P' && f.is_champion && <span style={{ marginLeft: 6, fontSize: 12 }}>🥇</span>}
                   </div>
-                  <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexShrink: 0 }}>
                     {f.score !== undefined && (
                       <span style={{ fontSize: 12, color: 'var(--muted)' }}>{f.score.toFixed(1)}</span>
                     )}
                     <Record wins={f.wins} losses={f.losses} draws={f.draws} />
+                    {tab !== 'P4P' && (
+                      <button
+                        onClick={() => setChampion(f.id)}
+                        title="Set as Champion"
+                        style={{
+                          background: (f.is_champion && f.champion_division === tab) ? '#d4a01733' : 'var(--surface2)',
+                          border: `1px solid ${(f.is_champion && f.champion_division === tab) ? 'var(--gold)' : 'var(--border)'}`,
+                          borderRadius: 4, padding: '2px 7px', fontSize: 13, cursor: 'pointer', lineHeight: 1.4,
+                        }}
+                      >👑</button>
+                    )}
                     {mode === 'manual' && tab !== 'P4P' && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                         <button onClick={() => moveUp(i)} style={arrowBtn} disabled={i === 0}>▲</button>
