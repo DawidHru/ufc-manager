@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import type { Event, Fight, Fighter, CardPosition, FightResult, TitleType } from '@/lib/database.types'
 import { DIVISIONS } from '@/lib/database.types'
-import { rollInjury, updateFighterScores } from '@/lib/matchmaking'
+import { rollInjury, updateFighterScores, calculateFightScore, determineScheduledRounds } from '@/lib/matchmaking'
 
 interface FightWithFighters extends Fight {
   fighter1: Fighter
@@ -33,6 +33,7 @@ export default function EventPage() {
   const [event, setEvent] = useState<Event | null>(null)
   const [fights, setFights] = useState<FightWithFighters[]>([])
   const [loading, setLoading] = useState(true)
+  const [autoFilling, setAutoFilling] = useState(false)
   const [enteringResult, setEnteringResult] = useState<number | null>(null)
   const [resultForm, setResultForm] = useState({
     winner_id: '',
@@ -155,6 +156,136 @@ export default function EventPage() {
     fetchData(Number(id))
   }
 
+  async function autoFill() {
+    if (!event) return
+    setAutoFilling(true)
+
+    const bookedIds = new Set(fights.flatMap(f => [f.fighter1_id, f.fighter2_id]))
+
+    const [{ data: allFighters }, { data: rankingsData }, { data: fightHistoryData }] = await Promise.all([
+      supabase.from('fighters').select('*').eq('status', 'active'),
+      supabase.from('current_rankings').select('*'),
+      supabase.from('fights').select('fighter1_id, fighter2_id, hype_rating, dominance_rating').not('result_method', 'is', null),
+    ])
+
+    const availableFighters = (allFighters ?? []).filter(f =>
+      !bookedIds.has(f.id) && (!f.available_date || new Date(f.available_date) <= new Date())
+    )
+
+    const rankMap: Record<string, Record<number, number>> = {}
+    for (const r of rankingsData ?? []) {
+      if (!rankMap[r.division]) rankMap[r.division] = {}
+      rankMap[r.division][r.fighter_id] = r.rank
+    }
+
+    const historyMap: Record<string, { count: number; lastHype: number | null; lastDom: number | null }> = {}
+    for (const f of fightHistoryData ?? []) {
+      const key = [Math.min(f.fighter1_id, f.fighter2_id), Math.max(f.fighter1_id, f.fighter2_id)].join('-')
+      if (!historyMap[key]) historyMap[key] = { count: 0, lastHype: null, lastDom: null }
+      historyMap[key].count++
+      historyMap[key].lastHype = f.hype_rating
+      historyMap[key].lastDom = f.dominance_rating
+    }
+
+    const isPPV = event.event_type === 'PPV'
+    const eventMaxFights = isPPV ? 11 : 8
+
+    const targetSlots: Record<CardPosition, number> = isPPV
+      ? { main_event: 1, co_main: 1, main_card: 3, prelims: 4, early_prelims: 2 }
+      : { main_event: 1, co_main: 1, main_card: 2, prelims: 3, early_prelims: 1 }
+
+    const existingSlots: Record<CardPosition, number> = { main_event: 0, co_main: 0, main_card: 0, prelims: 0, early_prelims: 0 }
+    for (const f of fights) existingSlots[f.card_position]++
+
+    const remainingSlots: Record<CardPosition, number> = {
+      main_event: Math.max(0, targetSlots.main_event - existingSlots.main_event),
+      co_main: Math.max(0, targetSlots.co_main - existingSlots.co_main),
+      main_card: Math.max(0, targetSlots.main_card - existingSlots.main_card),
+      prelims: Math.max(0, targetSlots.prelims - existingSlots.prelims),
+      early_prelims: Math.max(0, targetSlots.early_prelims - existingSlots.early_prelims),
+    }
+
+    const usedFighters = new Set<number>()
+    const newFights: any[] = []
+    const currentDate = new Date()
+
+    function getR(fighterId: number, division: string): number | null {
+      return rankMap[division]?.[fighterId] ?? null
+    }
+
+    // PPV main event: champion vs #1 contender
+    if (remainingSlots.main_event > 0 && isPPV) {
+      const champions = availableFighters.filter(f => f.is_champion)
+      for (const champ of champions) {
+        if (usedFighters.has(champ.id)) continue
+        const div = champ.champion_division ?? champ.primary_division
+        const divRankings = rankMap[div] ?? {}
+        const contenderEntry = Object.entries(divRankings)
+          .sort(([, a], [, b]) => (a as number) - (b as number))
+          .find(([fid]) => !usedFighters.has(Number(fid)) && !bookedIds.has(Number(fid)) && Number(fid) !== champ.id)
+        if (!contenderEntry) continue
+        const contender = availableFighters.find(f => f.id === Number(contenderEntry[0]))
+        if (!contender) continue
+        newFights.push({
+          event_id: event.id, fighter1_id: champ.id, fighter2_id: contender.id,
+          division: div, card_position: 'main_event' as CardPosition,
+          title_type: 'title' as TitleType, scheduled_rounds: 5,
+        })
+        usedFighters.add(champ.id)
+        usedFighters.add(contender.id)
+        remainingSlots.main_event--
+        break
+      }
+    }
+
+    // Score all remaining same-division pairs
+    const allPairs: { f1: Fighter; f2: Fighter; division: string; score: number }[] = []
+    for (let i = 0; i < availableFighters.length; i++) {
+      for (let j = i + 1; j < availableFighters.length; j++) {
+        const f1 = availableFighters[i]
+        const f2 = availableFighters[j]
+        if (f1.primary_division !== f2.primary_division) continue
+        const division = f1.primary_division
+        const key = [Math.min(f1.id, f2.id), Math.max(f1.id, f2.id)].join('-')
+        const hist = historyMap[key] ?? { count: 0, lastHype: null, lastDom: null }
+        const sc = calculateFightScore(f1, f2, getR(f1.id, division), getR(f2.id, division),
+          { f1vsf2Count: hist.count, lastFightHype: hist.lastHype, lastFightDominance: hist.lastDom },
+          false, 0, currentDate)
+        if (sc.total > -5) allPairs.push({ f1, f2, division, score: sc.total })
+      }
+    }
+    allPairs.sort((a, b) => b.score - a.score)
+
+    const slotOrder: CardPosition[] = ['main_event', 'co_main', 'main_card', 'prelims', 'early_prelims']
+    for (const pos of slotOrder) {
+      let slots = remainingSlots[pos]
+      for (const pair of allPairs) {
+        if (slots <= 0) break
+        if (usedFighters.has(pair.f1.id) || usedFighters.has(pair.f2.id)) continue
+        const rounds = determineScheduledRounds(false, false, pos, event.event_type as any,
+          pair.f1, pair.f2, getR(pair.f1.id, pair.division), getR(pair.f2.id, pair.division))
+        newFights.push({
+          event_id: event.id, fighter1_id: pair.f1.id, fighter2_id: pair.f2.id,
+          division: pair.division, card_position: pos,
+          title_type: 'none' as TitleType, scheduled_rounds: rounds,
+        })
+        usedFighters.add(pair.f1.id)
+        usedFighters.add(pair.f2.id)
+        slots--
+      }
+    }
+
+    if (newFights.length > 0) {
+      const { error } = await supabase.from('fights').insert(newFights)
+      if (error) alert('Error: ' + error.message)
+    } else {
+      alert('Not enough available fighters to fill the card.')
+    }
+
+    await fetchData(Number(id))
+    setAutoFilling(false)
+  }
+
   if (loading) return <div style={{ padding: 40, color: 'var(--muted)' }}>Loading...</div>
   if (!event) return <div style={{ padding: 40, color: 'var(--muted)' }}>Event not found</div>
 
@@ -221,6 +352,16 @@ export default function EventPage() {
             }}>
               + Add Fight
             </a>
+          )}
+          {!isCompleted && !atLimit && (
+            <button onClick={autoFill} disabled={autoFilling} style={{
+              background: autoFilling ? 'var(--surface2)' : 'var(--accent)', border: 'none',
+              color: autoFilling ? 'var(--muted)' : '#fff',
+              padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+              cursor: autoFilling ? 'not-allowed' : 'pointer', opacity: autoFilling ? 0.7 : 1,
+            }}>
+              {autoFilling ? 'Filling...' : '⚡ Auto-fill Card'}
+            </button>
           )}
           {allFightsHaveResults && !isCompleted && (
             <button onClick={async () => {
