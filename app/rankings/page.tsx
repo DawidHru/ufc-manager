@@ -57,8 +57,9 @@ export default function RankingsPage() {
   useEffect(() => {
     setPreview(null)
     if (mode === 'manual' && tab !== 'P4P') {
+      const divChampId = fighters.find(f => f.is_champion && f.champion_division === tab)?.id
       const existing = (divRankings[tab] ?? [])
-        .filter((r: any) => r.rank >= 1 && r.rank <= 15)
+        .filter((r: any) => r.rank >= 1 && r.rank <= 15 && r.fighter_id !== divChampId)
         .sort((a: any, b: any) => a.rank - b.rank)
         .map((r: any) => {
           const f = fighters.find(f => f.id === r.fighter_id)
@@ -76,6 +77,8 @@ export default function RankingsPage() {
     const division = tab as Division
     await supabase.from('fighters').update({ is_champion: false, champion_division: null }).eq('champion_division', division).eq('is_champion', true)
     await supabase.from('fighters').update({ is_champion: true, champion_division: division }).eq('id', fighterId)
+    // Champion is separate from the rankings — remove all their ranking entries in this division
+    await supabase.from('rankings').delete().eq('fighter_id', fighterId).eq('division', division)
     await fetchAll()
   }
 
@@ -106,7 +109,9 @@ export default function RankingsPage() {
     const rankMap: Record<number, number> = {}
     for (const r of divRankings[division] ?? []) rankMap[r.fighter_id] = r.rank
 
-    const scored = divFighters.map(fighter => {
+    const scored = divFighters.filter(fighter =>
+      !(fighter.is_champion && fighter.champion_division === division)
+    ).map(fighter => {
       const myFights = fights
         .filter(f => f.fighter1_id === fighter.id || f.fighter2_id === fighter.id)
         .slice(0, 3)
@@ -182,10 +187,16 @@ export default function RankingsPage() {
         preview.map(f => ({ fighter_id: f.id, rank: f.rank, p4p_score: f.score ?? 0, snapshot_date: today }))
       )
     } else {
+      // Exclude champion from contender list — champion is above the ranking
+      const champId = champion?.id
+      const contenders = preview.filter(f => f.id !== champId)
       await supabase.from('rankings').delete().eq('division', tab).eq('snapshot_date', today)
-      await supabase.from('rankings').insert(
-        preview.map(f => ({ fighter_id: f.id, division: tab, rank: f.rank, snapshot_date: today }))
-      )
+      if (champId) await supabase.from('rankings').delete().eq('fighter_id', champId).eq('division', tab)
+      if (contenders.length > 0) {
+        await supabase.from('rankings').insert(
+          contenders.map((f, i) => ({ fighter_id: f.id, division: tab, rank: i + 1, snapshot_date: today }))
+        )
+      }
     }
 
     setPreview(null)
@@ -232,10 +243,14 @@ export default function RankingsPage() {
     if (!manualDirty || tab === 'P4P') return
     setSaving(true)
     const today = new Date().toISOString().split('T')[0]
+    const champId = champion?.id
+    // Exclude champion from contender list
+    const contenders = manualList.filter(f => f.id !== champId)
     await supabase.from('rankings').delete().eq('division', tab).eq('snapshot_date', today)
-    if (manualList.length > 0) {
+    if (champId) await supabase.from('rankings').delete().eq('fighter_id', champId).eq('division', tab)
+    if (contenders.length > 0) {
       await supabase.from('rankings').insert(
-        manualList.map(f => ({ fighter_id: f.id, division: tab, rank: f.rank, snapshot_date: today }))
+        contenders.map((f, i) => ({ fighter_id: f.id, division: tab, rank: i + 1, snapshot_date: today }))
       )
     }
     setManualDirty(false)
@@ -251,8 +266,11 @@ export default function RankingsPage() {
     ? fighters.find(f => f.is_interim_champion && f.champion_division === (tab as Division))
     : null
 
+  const champId = champion?.id
   const currentRanked = tab !== 'P4P'
-    ? (divRankings[tab] ?? []).filter((r: any) => r.rank >= 1 && r.rank <= 15).sort((a: any, b: any) => a.rank - b.rank)
+    ? (divRankings[tab] ?? [])
+        .filter((r: any) => r.rank >= 1 && r.rank <= 15 && r.fighter_id !== champId)
+        .sort((a: any, b: any) => a.rank - b.rank)
     : p4pRows.slice(0, 15)
 
   const unrankedFighters = tab !== 'P4P'
