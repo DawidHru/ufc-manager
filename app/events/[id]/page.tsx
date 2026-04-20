@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import type { Event, Fight, Fighter, CardPosition, FightResult, TitleType } from '@/lib/database.types'
 import { DIVISIONS } from '@/lib/database.types'
 import { rollInjury, updateFighterScores, calculateFightScore, determineScheduledRounds } from '@/lib/matchmaking'
+import { getSimId } from '@/lib/sim'
 
 interface FightWithFighters extends Fight {
   fighter1: Fighter
@@ -52,8 +53,11 @@ export default function EventPage() {
 
   async function fetchData(eventId: number) {
     setLoading(true)
+    const simId = getSimId()
     const [{ data: ev }, { data: fts }] = await Promise.all([
-      supabase.from('events').select('*').eq('id', eventId).single(),
+      simId
+        ? supabase.from('events').select('*').eq('id', eventId).eq('sim_id', simId).single()
+        : supabase.from('events').select('*').eq('id', eventId).single(),
       supabase.from('fights').select('*, fighter1:fighters!fighter1_id(*), fighter2:fighters!fighter2_id(*)')
         .eq('event_id', eventId).order('card_position'),
     ])
@@ -159,14 +163,21 @@ export default function EventPage() {
   async function autoFill() {
     if (!event) return
     setAutoFilling(true)
+    const simId = getSimId()
 
     // Get all scheduled event IDs to find globally-booked fighters
-    const { data: scheduledEvs } = await supabase.from('events').select('id').eq('status', 'scheduled')
+    const { data: scheduledEvs } = await (simId
+      ? supabase.from('events').select('id').eq('status', 'scheduled').eq('sim_id', simId)
+      : supabase.from('events').select('id').eq('status', 'scheduled'))
     const scheduledEventIds = (scheduledEvs ?? []).map(e => e.id)
 
     const [{ data: allFighters }, { data: rankingsData }, { data: fightHistoryData }, { data: pendingFightsData }] = await Promise.all([
-      supabase.from('fighters').select('*').eq('status', 'active'),
-      supabase.from('current_rankings').select('*'),
+      simId
+        ? supabase.from('fighters').select('*').eq('status', 'active').eq('sim_id', simId)
+        : supabase.from('fighters').select('*').eq('status', 'active'),
+      simId
+        ? supabase.from('current_rankings').select('*').eq('sim_id', simId)
+        : supabase.from('current_rankings').select('*'),
       supabase.from('fights').select('fighter1_id, fighter2_id, hype_rating, dominance_rating').not('result_method', 'is', null),
       scheduledEventIds.length > 0
         ? supabase.from('fights').select('fighter1_id, fighter2_id').in('event_id', scheduledEventIds).is('result_method', null)
@@ -244,6 +255,7 @@ export default function EventPage() {
           event_id: event.id, fighter1_id: champ.id, fighter2_id: contender.id,
           division: div, card_position: 'main_event' as CardPosition,
           title_type: 'title' as TitleType, scheduled_rounds: 5,
+          ...(simId !== null ? { sim_id: simId } : {}),
         })
         usedFighters.add(champ.id)
         usedFighters.add(contender.id)
@@ -282,6 +294,7 @@ export default function EventPage() {
           event_id: event.id, fighter1_id: pair.f1.id, fighter2_id: pair.f2.id,
           division: pair.division, card_position: pos,
           title_type: 'none' as TitleType, scheduled_rounds: rounds,
+          ...(simId !== null ? { sim_id: simId } : {}),
         })
         usedFighters.add(pair.f1.id)
         usedFighters.add(pair.f2.id)

@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import type { Fighter, Event, Division, TitleType, CardPosition } from '@/lib/database.types'
 import { DIVISIONS } from '@/lib/database.types'
 import { determineScheduledRounds } from '@/lib/matchmaking'
+import { getSimId } from '@/lib/sim'
 
 function MatchmakerContent() {
   const searchParams = useSearchParams()
@@ -36,10 +37,17 @@ function MatchmakerContent() {
   }, [f1Id, fighters])
 
   async function fetchBase() {
+    const simId = getSimId()
     const [{ data: ev }, { data: ft }, { data: rk }] = await Promise.all([
-      supabase.from('events').select('*').eq('status', 'scheduled').order('event_date'),
-      supabase.from('fighters').select('*').eq('status', 'active'),
-      supabase.from('current_rankings').select('*'),
+      simId
+        ? supabase.from('events').select('*').eq('sim_id', simId).eq('status', 'scheduled').order('event_date')
+        : supabase.from('events').select('*').eq('status', 'scheduled').order('event_date'),
+      simId
+        ? supabase.from('fighters').select('*').eq('sim_id', simId).eq('status', 'active')
+        : supabase.from('fighters').select('*').eq('status', 'active'),
+      simId
+        ? supabase.from('current_rankings').select('*').eq('sim_id', simId)
+        : supabase.from('current_rankings').select('*'),
     ])
     const evList = ev ?? []
     setEvents(evList)
@@ -87,10 +95,12 @@ function MatchmakerContent() {
       return alert(`${f2.first_name} ${f2.last_name} is not available until ${new Date(f2.available_date).toLocaleDateString('pl-PL')} — after this event.`)
     }
 
+    const simId = getSimId()
     const f1Rank = getRank(f1.id, manualDiv)
     const f2Rank = getRank(f2.id, manualDiv)
     const rounds = determineScheduledRounds(titleType === 'title', titleType === 'interim_title', cardPos, eventType as any, f1, f2, f1Rank, f2Rank)
     const { error } = await supabase.from('fights').insert({
+      sim_id: simId,
       event_id: Number(selectedEvent),
       fighter1_id: f1.id,
       fighter2_id: f2.id,

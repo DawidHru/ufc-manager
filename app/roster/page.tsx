@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import type { Fighter, Division, FighterStatus } from '@/lib/database.types'
 import { DIVISIONS } from '@/lib/database.types'
+import { getSimId } from '@/lib/sim'
 
 const STATUS_COLOR: Record<FighterStatus, string> = {
   active: 'var(--green)',
@@ -35,10 +36,10 @@ export default function RosterPage() {
 
   async function fetchFighters() {
     setLoading(true)
-    const { data } = await supabase
-      .from('fighters')
-      .select('*')
-      .order('hype_score', { ascending: false })
+    const simId = getSimId()
+    const query = supabase.from('fighters').select('*').order('hype_score', { ascending: false })
+    if (simId) query.eq('sim_id', simId)
+    const { data } = await query
     setFighters(data ?? [])
     setLoading(false)
   }

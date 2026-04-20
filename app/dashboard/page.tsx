@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import type { Event, Fighter, Fight } from '@/lib/database.types'
+import { getSimId } from '@/lib/sim'
 
 interface CurrentEventData {
   event: Event
@@ -28,16 +29,20 @@ export default function Dashboard() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
 
+    const simId = getSimId()
+
     // Get sim date
-    const simId = typeof window !== 'undefined' ? localStorage.getItem('simId') : null
     if (simId) {
       const { data: sim } = await supabase.from('simulation_config').select('sim_date').eq('id', simId).single()
       if (sim) setSimDate(sim.sim_date)
     }
-
     const [{ data: events }, { data: fighters }] = await Promise.all([
-      supabase.from('events').select('*').order('event_date', { ascending: true }),
-      supabase.from('fighters').select('*').neq('status', 'released').neq('status', 'retired'),
+      simId
+        ? supabase.from('events').select('*').eq('sim_id', simId).order('event_date', { ascending: true })
+        : supabase.from('events').select('*').order('event_date', { ascending: true }),
+      simId
+        ? supabase.from('fighters').select('*').eq('sim_id', simId).neq('status', 'released').neq('status', 'retired')
+        : supabase.from('fighters').select('*').neq('status', 'released').neq('status', 'retired'),
     ])
 
     const allEvents = events ?? []

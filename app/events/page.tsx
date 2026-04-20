@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import type { Event } from '@/lib/database.types'
+import { getSimId } from '@/lib/sim'
 
 const VENUES: { name: string; city: string; ppv: boolean }[] = [
   { name: 'T-Mobile Arena',       city: 'Las Vegas, NV',        ppv: true  },
@@ -124,10 +125,10 @@ export default function EventsPage() {
 
   async function fetchEvents() {
     setLoading(true)
-    const { data } = await supabase
-      .from('events')
-      .select('*')
-      .order('event_date', { ascending: true })
+    const simId = getSimId()
+    const query = supabase.from('events').select('*').order('event_date', { ascending: true })
+    if (simId) query.eq('sim_id', simId)
+    const { data } = await query
     const evs = data ?? []
     setEvents(evs)
     setLoading(false)
@@ -161,8 +162,10 @@ export default function EventsPage() {
   async function handleCreate() {
     if (!preview) return
     setCreating(true)
+    const simId = getSimId()
     const { error } = await supabase.from('events').insert(
       preview.map(e => ({
+        sim_id: simId,
         name: e.name,
         event_date: e.event_date,
         event_type: e.event_type,

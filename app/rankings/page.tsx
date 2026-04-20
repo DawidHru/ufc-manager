@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { DIVISIONS } from '@/lib/database.types'
 import type { Division, Fighter } from '@/lib/database.types'
 import { calculateRankingScore, calculateP4PScore } from '@/lib/matchmaking'
+import { getSimId } from '@/lib/sim'
 
 type Mode = 'auto' | 'manual'
 
@@ -35,10 +36,17 @@ export default function RankingsPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
+    const simId = getSimId()
     const [{ data: rankRows }, { data: p4pData }, { data: fighterData }] = await Promise.all([
-      supabase.from('current_rankings').select('*').order('rank'),
-      supabase.from('current_p4p').select('*').order('rank'),
-      supabase.from('fighters').select('*').not('status', 'in', '("released","retired")'),
+      simId
+        ? supabase.from('current_rankings').select('*').eq('sim_id', simId).order('rank')
+        : supabase.from('current_rankings').select('*').order('rank'),
+      simId
+        ? supabase.from('current_p4p').select('*').eq('sim_id', simId).order('rank')
+        : supabase.from('current_p4p').select('*').order('rank'),
+      simId
+        ? supabase.from('fighters').select('*').eq('sim_id', simId).not('status', 'in', '("released","retired")')
+        : supabase.from('fighters').select('*').not('status', 'in', '("released","retired")'),
     ])
     const grouped: Record<string, any[]> = {}
     for (const r of rankRows ?? []) {
@@ -74,17 +82,24 @@ export default function RankingsPage() {
   // ── Set champion ──────────────────────────────────────────────────────────
   async function setChampion(fighterId: number) {
     if (tab === 'P4P') return
+    const simId = getSimId()
     const division = tab as Division
-    await supabase.from('fighters').update({ is_champion: false, champion_division: null }).eq('champion_division', division).eq('is_champion', true)
+    const clearQ = supabase.from('fighters').update({ is_champion: false, champion_division: null }).eq('champion_division', division).eq('is_champion', true)
+    if (simId) clearQ.eq('sim_id', simId)
+    await clearQ
     await supabase.from('fighters').update({ is_champion: true, champion_division: division }).eq('id', fighterId)
-    // Champion is separate from the rankings — remove all their ranking entries in this division
-    await supabase.from('rankings').delete().eq('fighter_id', fighterId).eq('division', division)
+    const delRankQ = supabase.from('rankings').delete().eq('fighter_id', fighterId).eq('division', division)
+    if (simId) delRankQ.eq('sim_id', simId)
+    await delRankQ
     await fetchAll()
   }
 
   async function clearChampion() {
     if (tab === 'P4P') return
-    await supabase.from('fighters').update({ is_champion: false, champion_division: null }).eq('champion_division', tab as Division).eq('is_champion', true)
+    const simId = getSimId()
+    const q = supabase.from('fighters').update({ is_champion: false, champion_division: null }).eq('champion_division', tab as Division).eq('is_champion', true)
+    if (simId) q.eq('sim_id', simId)
+    await q
     await fetchAll()
   }
 
@@ -179,22 +194,30 @@ export default function RankingsPage() {
   async function saveAuto() {
     if (!preview) return
     setSaving(true)
+    const simId = getSimId()
     const today = new Date().toISOString().split('T')[0]
 
     if (tab === 'P4P') {
-      await supabase.from('p4p_rankings').delete().eq('snapshot_date', today)
+      const delQ = supabase.from('p4p_rankings').delete().eq('snapshot_date', today)
+      if (simId) delQ.eq('sim_id', simId)
+      await delQ
       await supabase.from('p4p_rankings').insert(
-        preview.map(f => ({ fighter_id: f.id, rank: f.rank, p4p_score: f.score ?? 0, snapshot_date: today }))
+        preview.map(f => ({ sim_id: simId, fighter_id: f.id, rank: f.rank, p4p_score: f.score ?? 0, snapshot_date: today }))
       )
     } else {
-      // Exclude champion from contender list — champion is above the ranking
       const champId = champion?.id
       const contenders = preview.filter(f => f.id !== champId)
-      await supabase.from('rankings').delete().eq('division', tab).eq('snapshot_date', today)
-      if (champId) await supabase.from('rankings').delete().eq('fighter_id', champId).eq('division', tab)
+      const delQ = supabase.from('rankings').delete().eq('division', tab).eq('snapshot_date', today)
+      if (simId) delQ.eq('sim_id', simId)
+      await delQ
+      if (champId) {
+        const delChamp = supabase.from('rankings').delete().eq('fighter_id', champId).eq('division', tab)
+        if (simId) delChamp.eq('sim_id', simId)
+        await delChamp
+      }
       if (contenders.length > 0) {
         await supabase.from('rankings').insert(
-          contenders.map((f, i) => ({ fighter_id: f.id, division: tab, rank: i + 1, snapshot_date: today }))
+          contenders.map((f, i) => ({ sim_id: simId, fighter_id: f.id, division: tab, rank: i + 1, snapshot_date: today }))
         )
       }
     }
@@ -242,15 +265,21 @@ export default function RankingsPage() {
   async function saveManual() {
     if (!manualDirty || tab === 'P4P') return
     setSaving(true)
+    const simId = getSimId()
     const today = new Date().toISOString().split('T')[0]
     const champId = champion?.id
-    // Exclude champion from contender list
     const contenders = manualList.filter(f => f.id !== champId)
-    await supabase.from('rankings').delete().eq('division', tab).eq('snapshot_date', today)
-    if (champId) await supabase.from('rankings').delete().eq('fighter_id', champId).eq('division', tab)
+    const delQ = supabase.from('rankings').delete().eq('division', tab).eq('snapshot_date', today)
+    if (simId) delQ.eq('sim_id', simId)
+    await delQ
+    if (champId) {
+      const delChamp = supabase.from('rankings').delete().eq('fighter_id', champId).eq('division', tab)
+      if (simId) delChamp.eq('sim_id', simId)
+      await delChamp
+    }
     if (contenders.length > 0) {
       await supabase.from('rankings').insert(
-        contenders.map((f, i) => ({ fighter_id: f.id, division: tab, rank: i + 1, snapshot_date: today }))
+        contenders.map((f, i) => ({ sim_id: simId, fighter_id: f.id, division: tab, rank: i + 1, snapshot_date: today }))
       )
     }
     setManualDirty(false)

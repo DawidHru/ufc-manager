@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import type { Fighter, Fight, Event, CardPosition, TitleType } from '@/lib/database.types'
 import { calculateFightScore, isFastTrack, determineScheduledRounds } from '@/lib/matchmaking'
+import { getSimId } from '@/lib/sim'
 
 interface FightWithEvent extends Fight {
   event?: Event
@@ -48,16 +49,25 @@ export default function FighterProfile() {
 
   async function fetchData(fighterId: number) {
     setLoading(true)
+    const simId = getSimId()
     const [{ data: f }, { data: fts }, { data: ev }, { data: allFighters }, { data: rankings }] = await Promise.all([
-      supabase.from('fighters').select('*').eq('id', fighterId).single(),
+      simId
+        ? supabase.from('fighters').select('*').eq('id', fighterId).eq('sim_id', simId).single()
+        : supabase.from('fighters').select('*').eq('id', fighterId).single(),
       supabase.from('fights')
         .select('*, events(*), fighter1:fighters!fighter1_id(*), fighter2:fighters!fighter2_id(*)')
         .or(`fighter1_id.eq.${fighterId},fighter2_id.eq.${fighterId}`)
         .not('result_method', 'is', null)
         .order('created_at', { ascending: false }),
-      supabase.from('events').select('*').eq('status', 'scheduled').order('event_date'),
-      supabase.from('fighters').select('*').eq('status', 'active').neq('id', fighterId),
-      supabase.from('current_rankings').select('*'),
+      simId
+        ? supabase.from('events').select('*').eq('status', 'scheduled').eq('sim_id', simId).order('event_date')
+        : supabase.from('events').select('*').eq('status', 'scheduled').order('event_date'),
+      simId
+        ? supabase.from('fighters').select('*').eq('status', 'active').neq('id', fighterId).eq('sim_id', simId)
+        : supabase.from('fighters').select('*').eq('status', 'active').neq('id', fighterId),
+      simId
+        ? supabase.from('current_rankings').select('*').eq('sim_id', simId)
+        : supabase.from('current_rankings').select('*'),
     ])
 
     setFighter(f)
@@ -131,6 +141,7 @@ export default function FighterProfile() {
       ev?.event_type as any ?? 'Fight Night', fighter, opp.opponent,
       null, opp.oppRank
     )
+    const simId = getSimId()
     const { error } = await supabase.from('fights').insert({
       event_id: Number(eventId),
       fighter1_id: fighter.id,
@@ -139,6 +150,7 @@ export default function FighterProfile() {
       card_position: cardPos,
       title_type: titleType,
       scheduled_rounds: rounds,
+      ...(simId !== null ? { sim_id: simId } : {}),
     })
     if (error) alert('Error: ' + error.message)
     else router.push(`/events/${eventId}`)
@@ -149,11 +161,13 @@ export default function FighterProfile() {
     const { opponentId } = booking
     if (!fighter) return
     setBooking(b => ({ ...b, saving: true }))
+    const simId = getSimId()
     const { error } = await supabase.from('matchmaking_suggestions').insert({
       fighter1_id: fighter.id,
       fighter2_id: opponentId,
       division: fighter.primary_division,
       status: 'pending',
+      ...(simId !== null ? { sim_id: simId } : {}),
     })
     if (error) alert('Error: ' + error.message)
     else setBooking({ opponentId: 0, mode: null, eventId: '', cardPos: 'main_card', titleType: 'none', saving: false })

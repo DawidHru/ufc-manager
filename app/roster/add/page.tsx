@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { DIVISIONS } from '@/lib/database.types'
 import type { Division, FighterStyle } from '@/lib/database.types'
+import { getSimId } from '@/lib/sim'
 
 const STYLES: FighterStyle[] = ['Striker', 'Wrestler', 'Grappler', 'All-around']
 
@@ -69,7 +70,9 @@ export default function AddFighterPage() {
     const losses = Number(form.losses) || 0
     const streak = wins > 0 && losses === 0 ? wins : 0
 
+    const simId = getSimId()
     const { error } = await supabase.from('fighters').insert({
+      sim_id: simId,
       first_name: form.first_name.trim(),
       last_name: form.last_name.trim(),
       nickname: form.nickname.trim() || null,

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { getSimId } from '@/lib/sim'
 
 const ALLOWED_OPERATIONS = ['INSERT']
 const ALLOWED_TABLES = ['fighters', 'events', 'fights', 'rankings', 'p4p_rankings', 'feuds']
@@ -124,15 +125,16 @@ export default function CommandsPage() {
 
     if (rows.length === 0) return { error: 'No values found' }
 
+    const simId = getSimId()
     const records = rows.map(row => {
       const obj: Record<string, any> = {}
       columns.forEach((col, i) => {
         let val: any = row[i]
         if (val === 'NULL' || val === null) { obj[col] = null; return }
-        // Try to parse numbers
         if (!isNaN(Number(val)) && val !== '') obj[col] = Number(val)
         else obj[col] = val
       })
+      if (simId) obj.sim_id = simId
       return obj
     })
 

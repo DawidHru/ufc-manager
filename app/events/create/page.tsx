@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { getSimId } from '@/lib/sim'
 
 export default function CreateEventPage() {
   const router = useRouter()
@@ -22,7 +23,9 @@ export default function CreateEventPage() {
   async function save() {
     if (!form.name || !form.event_date) return alert('Name and date are required')
     setSaving(true)
+    const simId = getSimId()
     const { data, error } = await supabase.from('events').insert({
+      sim_id: simId,
       name: form.name.trim(),
       event_date: form.event_date,
       event_type: form.event_type,
