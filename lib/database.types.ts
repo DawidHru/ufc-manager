@@ -163,6 +163,7 @@ export interface MatchmakingSuggestion {
 
 export interface SimulationConfig {
   id: number
+  name: string | null
   start_date: string
   sim_date: string
   created_at: string
