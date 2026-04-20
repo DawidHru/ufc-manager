@@ -166,6 +166,8 @@ export default function EventPage() {
 
   const isCompleted = event.status === 'completed'
   const allFightsHaveResults = fights.length > 0 && fights.every(f => f.result_method !== null)
+  const maxFights = event.event_type === 'PPV' ? 11 : 8
+  const atLimit = fights.length >= maxFights
 
   return (
     <div style={{ padding: 32, maxWidth: 860 }}>
@@ -203,19 +205,23 @@ export default function EventPage() {
             <div style={{ fontSize: 18, fontWeight: 700 }}>
               {new Date(event.event_date).toLocaleDateString('pl-PL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
             </div>
-            <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>{fights.length} fights</div>
+            <div style={{ fontSize: 13, color: atLimit ? 'var(--accent)' : 'var(--muted)', marginTop: 4, fontWeight: atLimit ? 700 : 400 }}>
+              {fights.length} / {maxFights} fights{atLimit ? ' — limit osiągnięty' : ''}
+            </div>
           </div>
         </div>
 
         {/* Actions */}
         <div style={{ display: 'flex', gap: 10, marginTop: 20, flexWrap: 'wrap' }}>
-          <a href={`/matchmaker?event=${event.id}`} style={{
-            background: 'var(--surface2)', border: '1px solid var(--border)',
-            color: 'var(--foreground)', padding: '8px 16px', borderRadius: 8,
-            fontSize: 13, fontWeight: 600, textDecoration: 'none',
-          }}>
-            + Add Fight
-          </a>
+          {!atLimit && (
+            <a href={`/matchmaker?event=${event.id}`} style={{
+              background: 'var(--surface2)', border: '1px solid var(--border)',
+              color: 'var(--foreground)', padding: '8px 16px', borderRadius: 8,
+              fontSize: 13, fontWeight: 600, textDecoration: 'none',
+            }}>
+              + Add Fight
+            </a>
+          )}
           {allFightsHaveResults && !isCompleted && (
             <button onClick={async () => {
               await supabase.from('events').update({ status: 'completed' }).eq('id', event.id)

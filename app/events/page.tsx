@@ -54,15 +54,15 @@ function generateSchedule(startDate: Date, weeksAhead: number, startPpvNum: numb
   const events: GenEvent[] = []
   const ppvVenues = VENUES.filter(v => v.ppv)
   let ppvNum = startPpvNum
-  // Cycle: PPV on day 0, FN on day 7 and day 21 of the next cycle
-  // i.e. PPV → FN (7 days later) → FN (7+14 days later) → PPV (28 days later) ...
+  // Cycle: 8 weeks (56 days) between PPVs
+  // PPV → FN week 3 (day 21) → FN week 5 (day 35) → PPV week 8 (day 56)
   let ppvDate = nextSaturday(startDate)
   const totalDays = weeksAhead * 7
 
   while (true) {
-    const fn1Date = addDays(ppvDate, 7)
-    const fn2Date = addDays(ppvDate, 21)
-    const nextPpvDate = addDays(ppvDate, 28)
+    const fn1Date = addDays(ppvDate, 21)
+    const fn2Date = addDays(ppvDate, 35)
+    const nextPpvDate = addDays(ppvDate, 56)
 
     if ((ppvDate.getTime() - startDate.getTime()) / 86400000 > totalDays) break
 
@@ -77,7 +77,7 @@ function generateSchedule(startDate: Date, weeksAhead: number, startPpvNum: numb
     })
     ppvNum++
 
-    // Fight Night 1
+    // Fight Night 1 (week 3)
     if ((fn1Date.getTime() - startDate.getTime()) / 86400000 <= totalDays) {
       const v = pick(VENUES)
       events.push({
@@ -88,7 +88,7 @@ function generateSchedule(startDate: Date, weeksAhead: number, startPpvNum: numb
       })
     }
 
-    // Fight Night 2
+    // Fight Night 2 (week 5)
     if ((fn2Date.getTime() - startDate.getTime()) / 86400000 <= totalDays) {
       const v = pick(VENUES)
       events.push({
@@ -113,7 +113,7 @@ export default function EventsPage() {
   // Generator state
   const [showGen, setShowGen] = useState(false)
   const [genStartDate, setGenStartDate] = useState('')
-  const [genWeeks, setGenWeeks] = useState(8)
+  const [genWeeks, setGenWeeks] = useState(16)
   const [genPpvNum, setGenPpvNum] = useState(1)
   const [preview, setPreview] = useState<GenEvent[] | null>(null)
   const [creating, setCreating] = useState(false)
@@ -231,7 +231,7 @@ export default function EventsPage() {
                 width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)',
                 borderRadius: 8, padding: '10px 12px', color: 'var(--foreground)', fontSize: 14,
               }}>
-                {[4, 8, 12, 16, 24].map(w => <option key={w} value={w}>{w} weeks (~{Math.floor(w / 4)} months)</option>)}
+                {[8, 16, 24, 32, 48].map(w => <option key={w} value={w}>{w} weeks (~{Math.round(w / 4.3)} months)</option>)}
               </select>
             </div>
             <div>
