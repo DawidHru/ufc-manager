@@ -225,12 +225,16 @@ export default function EventPage() {
           {allFightsHaveResults && !isCompleted && (
             <button onClick={async () => {
               await supabase.from('events').update({ status: 'completed' }).eq('id', event.id)
+              const simId = localStorage.getItem('simId')
+              if (simId) {
+                await supabase.from('simulation_config').update({ sim_date: event.event_date }).eq('id', simId)
+              }
               fetchData(Number(id))
             }} style={{
               background: 'var(--green)', border: 'none', color: '#fff',
               padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
             }}>
-              Mark as Completed
+              Complete Event ✓
             </button>
           )}
         </div>
