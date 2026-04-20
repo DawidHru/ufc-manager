@@ -267,6 +267,41 @@ export default function CommandsPage() {
           ))}
         </div>
       </div>
+
+      {/* Rankings reference */}
+      <div style={{ marginTop: 32 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Rankings Insert</h2>
+        <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>
+          After inserting fighters, insert their rankings separately. Fighter ID is visible in the roster URL.
+        </p>
+        <pre style={{
+          background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+          padding: 16, fontSize: 12, fontFamily: 'Consolas, Monaco, monospace',
+          color: 'var(--foreground)', overflowX: 'auto', margin: '0 0 16px',
+        }}>{`INSERT INTO rankings (fighter_id, division, rank, snapshot_date) VALUES
+  (1, 'Lightweight', 1, '2020-01-04'),
+  (2, 'Lightweight', 2, '2020-01-04'),
+  (3, 'Lightweight', 3, '2020-01-04');`}</pre>
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', fontSize: 12 }}>
+          {[
+            ['fighter_id', 'INT', 'ID from the fighters table (visible in roster URL /roster/123)'],
+            ['division', 'TEXT', 'Flyweight / Bantamweight / Featherweight / Lightweight / Welterweight / Middleweight / Light Heavyweight / Heavyweight'],
+            ['rank', 'INT', '1–15 for contenders. Champion is set on fighters table (is_champion, champion_division).'],
+            ['snapshot_date', 'DATE', 'YYYY-MM-DD — use simulation start date for initial import'],
+          ].map(([col, type, desc], i, arr) => (
+            <div key={col} style={{
+              display: 'grid', gridTemplateColumns: '160px 60px 1fr',
+              padding: '9px 16px', gap: 12,
+              borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
+              alignItems: 'center',
+            }}>
+              <code style={{ color: 'var(--accent)' }}>{col}</code>
+              <span style={{ color: 'var(--muted)' }}>{type}</span>
+              <span style={{ color: 'var(--muted)' }}>{desc}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
